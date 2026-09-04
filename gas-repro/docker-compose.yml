@@ -1,0 +1,67 @@
+# Fresh local devnet for the standalone multi-call gas repro (see repro.mjs).
+# Deliberately on different host ports (29944/28088/26300) so it can run next to the
+# template's own devnet and the dust repro's. LOCAL DEVELOPMENT ONLY.
+# Tear down with: docker compose down -v
+name: gas-repro
+
+services:
+  node:
+    image: midnightntwrk/midnight-node:2.0.0-rc.4
+    container_name: gas-repro-node
+    ports:
+      - '29944:9944'
+    environment:
+      CFG_PRESET: 'dev'
+      SIDECHAIN_BLOCK_BENEFICIARY: '04bcf7ad3be7a5c790460be82a713af570f22e0f801f6659ab8e84a52be6969e'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -sf -H ''Content-Type: application/json'' -d ''{"id":1,"jsonrpc":"2.0","method":"chain_getBlockHash","params":[1]}'' http://localhost:9944 | grep -q ''"result":"0x''',
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  indexer:
+    # Tag encodes its pairing: l91r3 = ledger 9.1 rc3, n2r3 = node 2 rc3.
+    image: midnightntwrk/indexer-standalone:4.4.0-pre-alpha.16-l91r3-n2r3-bridge-and-events-epics-contract-zswap-16c656df
+    container_name: gas-repro-indexer
+    restart: on-failure
+    ports:
+      - '28088:8088'
+    environment:
+      RUST_LOG: 'indexer=info,chain_indexer=info,indexer_api=info,wallet_indexer=info,indexer_common=info,info'
+      APP__APPLICATION__NETWORK_ID: 'undeployed'
+      APP__INFRA__NODE__URL: 'ws://node:9944'
+      APP__INFRA__STORAGE__PASSWORD: 'indexer'
+      APP__INFRA__PUB_SUB__PASSWORD: 'indexer'
+      APP__INFRA__LEDGER_STATE_STORAGE__PASSWORD: 'indexer'
+      APP__INFRA__SECRET: '303132333435363738393031323334353637383930313233343536373839303132'
+      APP__INFRA__SPO_NODE__URL: 'ws://node:9944'
+      APP__INFRA__SPO_NODE__BLOCKFROST_ID: 'local-devnet-dummy-id'
+    healthcheck:
+      test: ['CMD-SHELL', 'cat /var/run/indexer-standalone/running']
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+    depends_on:
+      node:
+        condition: service_healthy
+
+  proof-server:
+    image: midnightntwrk/proof-server:9.0.0-rc.5_experimental
+    container_name: gas-repro-proof-server
+    command: ['midnight-proof-server -v']
+    ports:
+      - '26300:6300'
+    environment:
+      RUST_BACKTRACE: 'full'
+    healthcheck:
+      test: ['CMD-SHELL', 'echo > /dev/tcp/127.0.0.1/6300']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s

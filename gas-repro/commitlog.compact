@@ -1,0 +1,28 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// Minimal contract for the multi-call gas repro: an append-only commitment log.
+//
+// One circuit, `appendEntry`, inserting a single leaf into a Merkle tree held in contract
+// state. No witnesses, no private state, no unshielded or shielded token I/O -- so a
+// transaction carrying N calls to it exercises `partition_transcripts`' per-call gas
+// budgeting and essentially nothing else.
+//
+// `entryCount` is only so the harness can assert how many leaves actually landed; the tree
+// is what the circuit costs.
+
+export ledger entries: HistoricMerkleTree<32, Bytes<32>>;
+export ledger entryCount: Counter;
+
+/// Append one leaf.
+export circuit appendEntry(entry: Bytes<32>): [] {
+  entries.insert(disclose(entry));
+  entryCount.increment(1);
+}
+
+/// Public-state-only callee surface, for the cross-contract shape described in the report:
+/// a caller contract invoking this makes a two-call transaction by construction.
+export circuit checkRoot(root: MerkleTreeDigest): Boolean {
+  return entries.checkRoot(disclose(root));
+}
